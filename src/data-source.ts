@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { DataSource } from "typeorm";
-import { __prod__ } from "./constants";
+import { __prod__ } from "./utils/constants";
 import { User } from "./entity/User";
 
 export const AppDataSource = new DataSource({
@@ -11,7 +11,7 @@ export const AppDataSource = new DataSource({
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
   synchronize: !__prod__,
-  logging: true,
+  logging: !__prod__,
   entities: [User],
   migrations: [],
   subscribers: [],
