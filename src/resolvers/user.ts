@@ -1,4 +1,4 @@
-import { GoogleUser, MyContext } from "../utils/types";
+import { MyContext } from "../utils/types";
 import {
   Resolver,
   Query,
@@ -19,24 +19,10 @@ import {
 } from "../utils/constants";
 import { sendEmail } from "../utils/sendEmail";
 import { isAuth } from "../middleware/isAuth";
+import { isGoogleAuth } from "../middleware/isGoogleAuth";
 import { AppDataSource } from "../data-source";
-import {
-  createAccessToken,
-  createRefreshToken,
-  generateOTP,
-} from "../utils/auth";
-import axios from "axios";
-import axiosRetry from "axios-retry";
-
-axiosRetry(axios, {
-  retries: 3,
-  // retryCondition: (error) => {
-  //   return true;
-  // },
-  onRetry: (retryCount) => {
-    console.log("retry: ", retryCount);
-  },
-});
+import { createAccessToken, createRefreshToken, generateOTP } from "../utils/auth";
+import { fetchSpotifyAuth } from "../utils/fetchWithAxios";
 
 @InputType()
 class RegisterInput {
@@ -46,14 +32,6 @@ class RegisterInput {
   username: string;
   @Field()
   password: string;
-}
-
-@InputType()
-class RegisterWithGoogleInput {
-  @Field()
-  access_token: string;
-  @Field()
-  username: string;
 }
 
 @InputType()
@@ -101,6 +79,14 @@ class Auth {
 }
 
 @ObjectType()
+class SpotifyAuth {
+  @Field({ nullable: true })
+  spotify_access_token?: string;
+  @Field({ nullable: true })
+  spotify_expires_in?: number;
+}
+
+@ObjectType()
 class UserResponse {
   @Field(() => [FieldError], { nullable: true })
   errors?: FieldError[];
@@ -119,13 +105,10 @@ class AuthResponse {
 
   @Field(() => Auth, { nullable: true })
   auth?: Auth;
-}
 
-const fetchGoogleUser = async (access_token: string) => {
-  return axios.get(
-    `https://www.googleapis.com/oauth2/v3/userinfo?access_token=${access_token}`
-  );
-};
+  @Field(() => SpotifyAuth, { nullable: true })
+  spotify_auth?: SpotifyAuth;
+}
 
 @Resolver()
 export class UserResolver {
@@ -181,16 +164,28 @@ export class UserResolver {
 
     const token = await generateOTP();
 
-    await redis.set(
-      VERIFY_EMAIL_PREFIX + user._id,
-      token,
-      "EX",
-      1000 * 60 * 60
-    ); // 1 hour
+    await redis.set(VERIFY_EMAIL_PREFIX + user._id, token, "EX", 1000 * 60 * 60); // 1 hour
 
     const emailBody = `Your Token is: ${token}`;
 
     sendEmail(user.email, "REMASTER - VERIFY EMAIL", emailBody);
+
+    const data = await fetchSpotifyAuth(3);
+
+    if ("error" in data) {
+      return {
+        user: user,
+        auth: {
+          access_token: createAccessToken(user),
+          refresh_token: createRefreshToken(user),
+          expires_in: ACCESS_TOKEN_EXPIRES_IN,
+        },
+        spotify_auth: {
+          spotify_access_token: undefined,
+          spotify_expires_in: undefined,
+        },
+      };
+    }
 
     return {
       user: user,
@@ -199,28 +194,26 @@ export class UserResolver {
         refresh_token: createRefreshToken(user),
         expires_in: ACCESS_TOKEN_EXPIRES_IN,
       },
+      spotify_auth: {
+        spotify_access_token: data.access_token,
+        spotify_expires_in: data.expires_in,
+      },
     };
   }
 
   @Mutation(() => AuthResponse)
+  @UseMiddleware(isGoogleAuth)
   async registerWithGoogle(
-    @Arg("registerWithGoogleOptions")
-    registerWithGoogleOptions: RegisterWithGoogleInput
+    @Arg("username") username: string,
+    @Ctx() { google_payload }: MyContext
   ): Promise<AuthResponse> {
-    let googleUser: GoogleUser | null = null;
-    try {
-      const response = await fetchGoogleUser(
-        registerWithGoogleOptions.access_token
-      );
-      googleUser = response.data;
-    } catch (err) {
-      console.log("failed to fetch user");
-      console.error(err);
+    const email = google_payload!.google_email;
+    if (!email) {
       return {
         errors: [
           {
             field: "username",
-            message: `Failed to Retrieve Google Account`,
+            message: `No Email Associated with Account`,
           },
         ],
       };
@@ -229,8 +222,8 @@ export class UserResolver {
     let user;
     try {
       user = await User.create({
-        email: googleUser!.email,
-        username: registerWithGoogleOptions.username,
+        email: email,
+        username: username,
         verified: true,
       }).save();
     } catch (err) {
@@ -270,6 +263,23 @@ export class UserResolver {
       };
     }
 
+    const data = await fetchSpotifyAuth(3);
+
+    if ("error" in data) {
+      return {
+        user: user,
+        auth: {
+          access_token: createAccessToken(user),
+          refresh_token: createRefreshToken(user),
+          expires_in: ACCESS_TOKEN_EXPIRES_IN,
+        },
+        spotify_auth: {
+          spotify_access_token: undefined,
+          spotify_expires_in: undefined,
+        },
+      };
+    }
+
     return {
       user: user,
       auth: {
@@ -277,13 +287,15 @@ export class UserResolver {
         refresh_token: createRefreshToken(user),
         expires_in: ACCESS_TOKEN_EXPIRES_IN,
       },
+      spotify_auth: {
+        spotify_access_token: data.access_token,
+        spotify_expires_in: data.expires_in,
+      },
     };
   }
 
   @Mutation(() => AuthResponse)
-  async login(
-    @Arg("loginOptions") loginOptions: LoginInput
-  ): Promise<AuthResponse> {
+  async login(@Arg("loginOptions") loginOptions: LoginInput): Promise<AuthResponse> {
     const user = await User.findOne({ where: { email: loginOptions.email } });
     if (!user) {
       return {
@@ -319,6 +331,23 @@ export class UserResolver {
       };
     }
 
+    const data = await fetchSpotifyAuth(3);
+
+    if ("error" in data) {
+      return {
+        user: user,
+        auth: {
+          access_token: createAccessToken(user),
+          refresh_token: createRefreshToken(user),
+          expires_in: ACCESS_TOKEN_EXPIRES_IN,
+        },
+        spotify_auth: {
+          spotify_access_token: undefined,
+          spotify_expires_in: undefined,
+        },
+      };
+    }
+
     return {
       user: user,
       auth: {
@@ -326,31 +355,18 @@ export class UserResolver {
         refresh_token: createRefreshToken(user),
         expires_in: ACCESS_TOKEN_EXPIRES_IN,
       },
+      spotify_auth: {
+        spotify_access_token: data.access_token,
+        spotify_expires_in: data.expires_in,
+      },
     };
   }
 
   @Mutation(() => AuthResponse)
-  async loginWithGoogle(
-    @Arg("accessToken") accessToken: string
-  ): Promise<AuthResponse> {
-    let googleUser: GoogleUser | null = null;
-    try {
-      const response = await fetchGoogleUser(accessToken);
-      googleUser = response.data;
-    } catch (err) {
-      console.log("failed to fetch user");
-      console.error(err);
-      return {
-        errors: [
-          {
-            field: "google",
-            message: `Failed to Retrieve Google Account`,
-          },
-        ],
-      };
-    }
-
-    const user = await User.findOne({ where: { email: googleUser!.email } });
+  @UseMiddleware(isGoogleAuth)
+  async loginWithGoogle(@Ctx() { google_payload }: MyContext): Promise<AuthResponse> {
+    const email = google_payload!.google_email;
+    const user = await User.findOne({ where: { email: email } });
     if (!user) {
       return {
         errors: [
@@ -362,6 +378,23 @@ export class UserResolver {
       };
     }
 
+    const data = await fetchSpotifyAuth(3);
+
+    if ("error" in data) {
+      return {
+        user: user,
+        auth: {
+          access_token: createAccessToken(user),
+          refresh_token: createRefreshToken(user),
+          expires_in: ACCESS_TOKEN_EXPIRES_IN,
+        },
+        spotify_auth: {
+          spotify_access_token: undefined,
+          spotify_expires_in: undefined,
+        },
+      };
+    }
+
     return {
       user: user,
       auth: {
@@ -369,6 +402,27 @@ export class UserResolver {
         refresh_token: createRefreshToken(user),
         expires_in: ACCESS_TOKEN_EXPIRES_IN,
       },
+      spotify_auth: {
+        spotify_access_token: data.access_token,
+        spotify_expires_in: data.expires_in,
+      },
+    };
+  }
+
+  @Mutation(() => SpotifyAuth)
+  async loginWithGuestAccess(): Promise<SpotifyAuth> {
+    const data = await fetchSpotifyAuth(3);
+
+    if ("error" in data) {
+      return {
+        spotify_access_token: undefined,
+        spotify_expires_in: undefined,
+      };
+    }
+
+    return {
+      spotify_access_token: data.access_token,
+      spotify_expires_in: data.expires_in,
     };
   }
 
@@ -376,7 +430,7 @@ export class UserResolver {
   @UseMiddleware(isAuth)
   async changeUsername(
     @Arg("username") username: string,
-    @Ctx() { payload }: MyContext
+    @Ctx() { user_payload }: MyContext
   ): Promise<UserResponse> {
     const duplicateUser = await User.findOne({
       where: { username: username },
@@ -395,7 +449,7 @@ export class UserResolver {
     const result = await AppDataSource.createQueryBuilder()
       .update(User)
       .set({ username: username })
-      .where({ _id: payload!.user_id })
+      .where({ _id: user_payload!.user._id })
       .returning("*")
       .execute();
 
@@ -406,7 +460,7 @@ export class UserResolver {
   @UseMiddleware(isAuth)
   async changeEmail(
     @Arg("email") email: string,
-    @Ctx() { payload }: MyContext
+    @Ctx() { user_payload }: MyContext
   ): Promise<UserResponse> {
     const duplicateUser = await User.findOne({ where: { email: email } });
     if (duplicateUser) {
@@ -423,7 +477,7 @@ export class UserResolver {
     const result = await AppDataSource.createQueryBuilder()
       .update(User)
       .set({ email: email })
-      .where({ _id: payload!.user_id })
+      .where({ _id: user_payload!.user._id })
       .returning("*")
       .execute();
 
@@ -434,12 +488,10 @@ export class UserResolver {
   @UseMiddleware(isAuth)
   async changePassword(
     @Arg("changePasswordOptions") changePasswordOptions: ChangePasswordInput,
-    @Ctx() { payload }: MyContext
+    @Ctx() { user_payload }: MyContext
   ): Promise<UserResponse> {
-    const user = await User.findOne({ where: { _id: payload!.user_id } });
-
     const isValid = await argon2.verify(
-      user!.password!,
+      user_payload!.user.password!,
       changePasswordOptions.oldPassword
     );
     if (!isValid) {
@@ -454,11 +506,11 @@ export class UserResolver {
     }
 
     await User.update(
-      { _id: user!._id },
+      { _id: user_payload!.user._id },
       { password: await argon2.hash(changePasswordOptions.newPassword) }
     );
 
-    return { user: user! };
+    return { user: user_payload!.user };
   }
 
   @Mutation(() => AuthResponse)
@@ -509,6 +561,23 @@ export class UserResolver {
 
     await redis.del(key);
 
+    const data = await fetchSpotifyAuth(3);
+
+    if ("error" in data) {
+      return {
+        user: result.raw[0],
+        auth: {
+          access_token: createAccessToken(result.raw[0]),
+          refresh_token: createRefreshToken(result.raw[0]),
+          expires_in: ACCESS_TOKEN_EXPIRES_IN,
+        },
+        spotify_auth: {
+          spotify_access_token: undefined,
+          spotify_expires_in: undefined,
+        },
+      };
+    }
+
     return {
       user: result.raw[0],
       auth: {
@@ -516,14 +585,15 @@ export class UserResolver {
         refresh_token: createRefreshToken(result.raw[0]),
         expires_in: ACCESS_TOKEN_EXPIRES_IN,
       },
+      spotify_auth: {
+        spotify_access_token: data.access_token,
+        spotify_expires_in: data.expires_in,
+      },
     };
   }
 
   @Mutation(() => Boolean)
-  async forgotPassword(
-    @Arg("email") email: string,
-    @Ctx() { redis }: MyContext
-  ) {
+  async forgotPassword(@Arg("email") email: string, @Ctx() { redis }: MyContext) {
     const user = await User.findOne({ where: { email: email } });
     if (!user) {
       return true;
@@ -552,9 +622,9 @@ export class UserResolver {
   @UseMiddleware(isAuth)
   async verifyEmail(
     @Arg("token") token: string,
-    @Ctx() { payload, redis }: MyContext
+    @Ctx() { user_payload, redis }: MyContext
   ): Promise<UserResponse> {
-    const key = VERIFY_EMAIL_PREFIX + payload!.user_id;
+    const key = VERIFY_EMAIL_PREFIX + user_payload!.user._id;
 
     const storedToken = await redis.get(key);
     if (!storedToken) {
@@ -582,7 +652,7 @@ export class UserResolver {
     const result = await AppDataSource.createQueryBuilder()
       .update(User)
       .set({ verified: true })
-      .where({ _id: payload!.user_id })
+      .where({ _id: user_payload!.user._id })
       .returning("*")
       .execute();
 
@@ -593,10 +663,8 @@ export class UserResolver {
 
   @Mutation(() => Boolean)
   @UseMiddleware(isAuth)
-  async sendVerifyEmail(@Ctx() { payload, redis }: MyContext) {
-    const user = await User.findOne({ where: { _id: payload!.user_id } });
-
-    const key = VERIFY_EMAIL_PREFIX + payload!.user_id;
+  async sendVerifyEmail(@Ctx() { user_payload, redis }: MyContext) {
+    const key = VERIFY_EMAIL_PREFIX + user_payload!.user._id;
 
     const duplicate = await redis.exists(key);
 
@@ -610,12 +678,13 @@ export class UserResolver {
 
     const emailBody = `Your Token is: ${token}`;
 
-    sendEmail(user!.email, "REMASTER - VERIFY EMAIL", emailBody);
+    sendEmail(user_payload!.user.email, "REMASTER - VERIFY EMAIL", emailBody);
 
     return true;
   }
 
   @Query(() => [User])
+  @UseMiddleware(isAuth)
   users(): Promise<User[]> {
     return User.find();
   }

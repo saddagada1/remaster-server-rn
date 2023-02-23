@@ -1,9 +1,13 @@
-import { MyContext, AuthPayload } from "../utils/types";
+import { MyContext } from "../utils/types";
 import { MiddlewareFn } from "type-graphql";
-import { verify } from "jsonwebtoken";
-import { User } from "../entity/User";
+import { OAuth2Client } from "google-auth-library";
 
-export const isAuth: MiddlewareFn<MyContext> = async ({ context }, next) => {
+const googleClient = new OAuth2Client();
+
+export const isGoogleAuth: MiddlewareFn<MyContext> = async (
+  { context },
+  next
+) => {
   try {
     const authorization = context.req.headers.authorization;
     if (!authorization) {
@@ -21,18 +25,17 @@ export const isAuth: MiddlewareFn<MyContext> = async ({ context }, next) => {
       throw "Not Authenticated";
     }
     const token = Buffer.from(base64Token, "base64").toString("utf-8");
-    const payload = verify(token, process.env.ACCESS_TOKEN_SECRET!);
-    const authPayload = payload as AuthPayload;
-    const user = await User.findOne({ where: { _id: authPayload.user_id } });
-    if (!user) {
+    const ticket = await googleClient.verifyIdToken({
+      idToken: token,
+      audience: process.env.GOOGLE_OAUTH_CLIENT_ID,
+    });
+    const payload = ticket.getPayload();
+    if (!payload) {
       throw "Not Authenticated";
     }
-    if (user.token_version !== authPayload.token_version) {
-      throw "Not Authenticated";
-    }
-    context.user_payload = { user };
+    context.google_payload = { google_email: payload.email };
   } catch (err) {
-    console.error(err);
+    console.log(err);
     throw new Error("Not Authenticated");
   }
 

@@ -7,10 +7,8 @@ import { buildSchema } from "type-graphql";
 import { UserResolver } from "./resolvers/user";
 import { User } from "./entity/User";
 import Redis from "ioredis";
-import { verify } from "jsonwebtoken";
-import { Payload } from "./utils/types";
-import { createAccessToken, createRefreshToken } from "./utils/auth";
-import { ACCESS_TOKEN_EXPIRES_IN } from "./utils/constants";
+import refreshRoute from "./routes/refreshToken";
+import spotifyRoute from "./routes/spotifyToken";
 
 const main = async () => {
   AppDataSource.initialize()
@@ -20,82 +18,16 @@ const main = async () => {
     })
     .catch((error) => console.log(error));
 
-  const app = express();
   const redis = new Redis();
   redis.on("error", (err) => console.log("Redis Client Error", err));
 
+  const app = express();
+
+  app.use("/refresh_token", refreshRoute);
+  app.use("/spotify_token", spotifyRoute);
+
   app.get("/", (_req, res) => {
     res.send("hello world");
-  });
-
-  app.post("/refresh_token", async (req, res) => {
-    const authorization = req.headers.authorization;
-
-    if (!authorization) {
-      return res.send({
-        ok: false,
-        access_token: null,
-        refresh_token: null,
-        expires_in: null,
-        user: null,
-      });
-    }
-
-    const authRegex = /^Bearer/;
-
-    if (
-      !authRegex.test(authorization) ||
-      authorization.split(" ").length !== 2
-    ) {
-      return res.send({
-        ok: false,
-        access_token: null,
-        refresh_token: null,
-        expires_in: null,
-        user: null,
-      });
-    }
-
-    try {
-      const token = authorization.split(" ")[1];
-      const payload = verify(token, process.env.REFRESH_TOKEN_SECRET!);
-      const userPayload = payload as Payload;
-      const user = await User.findOne({ where: { _id: userPayload.user_id } });
-      if (!user) {
-        return res.send({
-          ok: false,
-          access_token: null,
-          refresh_token: null,
-          expires_in: null,
-          user: null,
-        });
-      }
-      if (user.token_version !== userPayload.token_version) {
-        return res.send({
-          ok: false,
-          access_token: null,
-          refresh_token: null,
-          expires_in: null,
-          user: null,
-        });
-      }
-      return res.send({
-        ok: true,
-        access_token: createAccessToken(user),
-        refresh_token: createRefreshToken(user),
-        expires_in: ACCESS_TOKEN_EXPIRES_IN,
-        user: user,
-      });
-    } catch (err) {
-      console.error(err);
-      return res.send({
-        ok: false,
-        access_token: null,
-        refresh_token: null,
-        expires_in: null,
-        user: null,
-      });
-    }
   });
 
   const apolloServer = new ApolloServer({
