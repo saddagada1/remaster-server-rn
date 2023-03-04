@@ -36,7 +36,7 @@ refreshRoute.post("/", async (req: Request, res: Response<RefreshTokenResponse |
     const token = Buffer.from(base64Token, "base64").toString("utf-8");
     const payload = verify(token, process.env.REFRESH_TOKEN_SECRET!);
     const authPayload = payload as AuthPayload;
-    const user = await User.findOne({ where: { _id: authPayload.user_id } });
+    const user = await User.findOne({ where: { id: authPayload.user_id } });
     if (!user) {
       throw "Bad Request";
     }

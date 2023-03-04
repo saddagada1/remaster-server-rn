@@ -10,10 +10,7 @@ export const isAuth: MiddlewareFn<MyContext> = async ({ context }, next) => {
       throw "Not Authenticated";
     }
     const authRegex = /^Bearer/;
-    if (
-      !authRegex.test(authorization) ||
-      authorization.split(" ").length !== 2
-    ) {
+    if (!authRegex.test(authorization) || authorization.split(" ").length !== 2) {
       throw "Not Authenticated";
     }
     const base64Token = authorization.split(" ")[1];
@@ -23,7 +20,7 @@ export const isAuth: MiddlewareFn<MyContext> = async ({ context }, next) => {
     const token = Buffer.from(base64Token, "base64").toString("utf-8");
     const payload = verify(token, process.env.ACCESS_TOKEN_SECRET!);
     const authPayload = payload as AuthPayload;
-    const user = await User.findOne({ where: { _id: authPayload.user_id } });
+    const user = await User.findOne({ where: { id: authPayload.user_id } });
     if (!user) {
       throw "Not Authenticated";
     }

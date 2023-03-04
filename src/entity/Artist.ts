@@ -12,30 +12,16 @@ import { Remaster } from "./Remaster";
 
 @ObjectType()
 @Entity()
-export class User extends BaseEntity {
+export class Artist extends BaseEntity {
   @Field()
   @PrimaryGeneratedColumn()
   id!: number;
 
   @Field()
-  @Column({ default: false })
-  verified!: boolean;
-
-  @Field()
   @Column("citext", { unique: true })
-  email!: string;
+  name!: string;
 
-  @Field()
-  @Column("citext", { unique: true })
-  username!: string;
-
-  @Column({ nullable: true })
-  password?: string;
-
-  @Column({ default: 0 })
-  token_version!: number;
-
-  @OneToMany(() => Remaster, (remaster) => remaster.creator)
+  @OneToMany(() => Remaster, (remaster) => remaster.artist)
   remasters: Remaster[];
 
   @Field(() => String)

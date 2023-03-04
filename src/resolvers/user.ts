@@ -164,7 +164,7 @@ export class UserResolver {
 
     const token = await generateOTP();
 
-    await redis.set(VERIFY_EMAIL_PREFIX + user._id, token, "EX", 1000 * 60 * 60); // 1 hour
+    await redis.set(VERIFY_EMAIL_PREFIX + user.id, token, "EX", 1000 * 60 * 60); // 1 hour
 
     const emailBody = `Your Token is: ${token}`;
 
@@ -449,7 +449,7 @@ export class UserResolver {
     const result = await AppDataSource.createQueryBuilder()
       .update(User)
       .set({ username: username })
-      .where({ _id: user_payload!.user._id })
+      .where({ id: user_payload!.user.id })
       .returning("*")
       .execute();
 
@@ -477,7 +477,7 @@ export class UserResolver {
     const result = await AppDataSource.createQueryBuilder()
       .update(User)
       .set({ email: email })
-      .where({ _id: user_payload!.user._id })
+      .where({ id: user_payload!.user.id })
       .returning("*")
       .execute();
 
@@ -506,7 +506,7 @@ export class UserResolver {
     }
 
     await User.update(
-      { _id: user_payload!.user._id },
+      { id: user_payload!.user.id },
       { password: await argon2.hash(changePasswordOptions.newPassword) }
     );
 
@@ -555,7 +555,7 @@ export class UserResolver {
         password: await argon2.hash(changeForgotPasswordOptions.password),
         token_version: () => "token_version + 1",
       })
-      .where({ _id: numUserID })
+      .where({ id: numUserID })
       .returning("*")
       .execute();
 
@@ -609,7 +609,7 @@ export class UserResolver {
 
     const token = await generateOTP();
 
-    await redis.set(key, `${user._id}:${token}`, "EX", 1000 * 60 * 60); // 1 hour
+    await redis.set(key, `${user.id}:${token}`, "EX", 1000 * 60 * 60); // 1 hour
 
     const emailBody = `Your Token is: ${token}`;
 
@@ -624,7 +624,7 @@ export class UserResolver {
     @Arg("token") token: string,
     @Ctx() { user_payload, redis }: MyContext
   ): Promise<UserResponse> {
-    const key = VERIFY_EMAIL_PREFIX + user_payload!.user._id;
+    const key = VERIFY_EMAIL_PREFIX + user_payload!.user.id;
 
     const storedToken = await redis.get(key);
     if (!storedToken) {
@@ -652,7 +652,7 @@ export class UserResolver {
     const result = await AppDataSource.createQueryBuilder()
       .update(User)
       .set({ verified: true })
-      .where({ _id: user_payload!.user._id })
+      .where({ id: user_payload!.user.id })
       .returning("*")
       .execute();
 
@@ -664,7 +664,7 @@ export class UserResolver {
   @Mutation(() => Boolean)
   @UseMiddleware(isAuth)
   async sendVerifyEmail(@Ctx() { user_payload, redis }: MyContext) {
-    const key = VERIFY_EMAIL_PREFIX + user_payload!.user._id;
+    const key = VERIFY_EMAIL_PREFIX + user_payload!.user.id;
 
     const duplicate = await redis.exists(key);
 

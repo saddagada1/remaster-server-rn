@@ -9,6 +9,7 @@ import { User } from "./entity/User";
 import Redis from "ioredis";
 import refreshRoute from "./routes/refreshToken";
 import spotifyRoute from "./routes/spotifyToken";
+import { RemasterResolver } from "./resolvers/remaster";
 
 const main = async () => {
   AppDataSource.initialize()
@@ -32,7 +33,7 @@ const main = async () => {
 
   const apolloServer = new ApolloServer({
     schema: await buildSchema({
-      resolvers: [UserResolver],
+      resolvers: [UserResolver, RemasterResolver],
       validate: false,
     }),
     context: ({ req, res }) => ({ req, res, redis }),

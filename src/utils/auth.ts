@@ -5,7 +5,7 @@ import { randomBytes } from "crypto";
 
 export const createAccessToken = (user: User) => {
   return sign(
-    { user_id: user._id, token_version: user.token_version },
+    { user_id: user.id, token_version: user.token_version },
     process.env.ACCESS_TOKEN_SECRET!,
     {
       expiresIn: ACCESS_TOKEN_EXPIRES_IN,
@@ -15,7 +15,7 @@ export const createAccessToken = (user: User) => {
 
 export const createRefreshToken = (user: User) => {
   return sign(
-    { user_id: user._id, token_version: user.token_version },
+    { user_id: user.id, token_version: user.token_version },
     process.env.REFRESH_TOKEN_SECRET!,
     { expiresIn: REFRESH_TOKEN_EXPIRES_IN }
   );
